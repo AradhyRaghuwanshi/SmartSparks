@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - SISTec IoT Application 2026</title>
+  <script src="app.js" defer></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+  <nav class="bg-gradient-to-r from-blue-500 to-purple-500 text-white p-4 flex justify-between items-center">
+    <h1 class="text-xl font-bold">SISTec IoT Application 2026</h1>
+    <div>
+      <span id="username" class="mr-4">User</span>
+      <button id="logoutButton" class="bg-red-500 px-4 py-2 rounded">Logout</button>
+    </div>
+  </nav>
+  <main class="p-4">
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+      <div class="bg-white p-4 rounded-lg shadow">
+        <h2 class="text-lg font-bold mb-2">Latest Temperature</h2>
+        <p id="latestTemperature" class="text-4xl">-- °C</p>
+      </div>
+      <div class="bg-white p-4 rounded-lg shadow">
+        <h2 class="text-lg font-bold mb-2">Latest Humidity</h2>
+        <p id="latestHumidity" class="text-4xl">-- %</p>
+        <p id="latestDateTime" class="text-sm text-gray-500">--</p>
+      </div>
+    </section>
+    <section class="mb-8">
+      <h2 class="text-lg font-bold mb-2">Send Text to LCD</h2>
+      <textarea id="lcdText" class="w-full p-2 border rounded mb-2" maxlength="16" placeholder="Enter text (max 16 chars)"></textarea>
+      <button id="saveLcdTextButton" class="bg-blue-500 text-white px-4 py-2 rounded">Save</button>
+    </section>
+    <section>
+      <h2 class="text-lg font-bold mb-2">Sensor Records</h2>
+      <table class="w-full border-collapse border border-gray-300">
+        <thead>
+          <tr>
+            <th class="border border-gray-300 px-4 py-2">#</th>
+            <th class="border border-gray-300 px-4 py-2">Temperature</th>
+            <th class="border border-gray-300 px-4 py-2">Humidity</th>
+            <th class="border border-gray-300 px-4 py-2">Time</th>
+            <th class="border border-gray-300 px-4 py-2">Date</th>
+            <th class="border border-gray-300 px-4 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody id="sensorRecords">
+          <!-- Records will be dynamically loaded here -->
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>
