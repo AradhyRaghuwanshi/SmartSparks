@@ -1,10 +1,11 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -19,50 +20,71 @@ app.use(session({
 }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Database setup
-const db = new sqlite3.Database('./database.db', (err) => {
-  if (err) {
-    console.error('Error opening database:', err.message);
-  } else {
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      email TEXT UNIQUE,
-      password TEXT
-    )`);
+// PostgreSQL connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // Required for Render
+});
 
-    db.run(`CREATE TABLE IF NOT EXISTS sensor_data (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      temperature REAL,
-      humidity REAL,
-      time TEXT,
-      date TEXT
-    )`);
+// Create tables on startup
+const initDB = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        email TEXT UNIQUE,
+        password TEXT
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sensor_data (
+        id SERIAL PRIMARY KEY,
+        temperature REAL,
+        humidity REAL,
+        time TEXT,
+        date TEXT
+      )
+    `);
+    console.log('Database tables ready');
+  } catch (err) {
+    console.error('Error initializing database:', err.message);
+  }
+};
+initDB();
+
+// Routes
+
+app.post('/register', async (req, res) => {
+  const { name, email, password } = req.body;
+  try {
+    await pool.query(
+      `INSERT INTO users (name, email, password) VALUES ($1, $2, $3)`,
+      [name, email, password]
+    );
+    res.send('User registered successfully');
+  } catch (err) {
+    console.error('Register error:', err.message);
+    res.status(500).send('Error registering user');
   }
 });
 
-// Routes
-app.post('/register', (req, res) => {
-  const { name, email, password } = req.body;
-  db.run(`INSERT INTO users (name, email, password) VALUES (?, ?, ?)`, [name, email, password], (err) => {
-    if (err) {
-      res.status(500).send('Error registering user');
-    } else {
-      res.send('User registered successfully');
-    }
-  });
-});
-
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  db.get(`SELECT * FROM users WHERE email = ? AND password = ?`, [email, password], (err, row) => {
-    if (err || !row) {
-      res.status(401).send('Invalid credentials');
-    } else {
-      req.session.user = row;
-      res.send('Login successful');
+  try {
+    const result = await pool.query(
+      `SELECT * FROM users WHERE email = $1 AND password = $2`,
+      [email, password]
+    );
+    if (result.rows.length === 0) {
+      return res.status(401).send('Invalid credentials');
     }
-  });
+    req.session.user = result.rows[0];
+    res.send('Login successful');
+  } catch (err) {
+    console.error('Login error:', err.message);
+    res.status(401).send('Invalid credentials');
+  }
 });
 
 app.get('/logout', (req, res) => {
@@ -78,69 +100,73 @@ app.get('/user', (req, res) => {
   }
 });
 
-app.post('/api/save-data', (req, res) => {
+app.post('/api/save-data', async (req, res) => {
   const { temperature, humidity } = req.body;
   const date = new Date().toLocaleDateString('en-IN');
-  const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-  db.run(`INSERT INTO sensor_data (temperature, humidity, time, date) VALUES (?, ?, ?, ?)`, [temperature, humidity, time, date], (err) => {
-    if (err) {
-      res.status(500).send('Error saving data');
-    } else {
-      res.send('Data saved successfully');
-    }
+  const time = new Date().toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
   });
+  try {
+    await pool.query(
+      `INSERT INTO sensor_data (temperature, humidity, time, date) VALUES ($1, $2, $3, $4)`,
+      [temperature, humidity, time, date]
+    );
+    res.send('Data saved successfully');
+  } catch (err) {
+    console.error('Save data error:', err.message);
+    res.status(500).send('Error saving data');
+  }
 });
 
-app.get('/latest-data', (req, res) => {
-  db.get(`SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1`, (err, row) => {
-    if (err || !row) {
-      res.status(500).send('Error fetching data');
-    } else {
-      res.json(row);
+app.get('/latest-data', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1`
+    );
+    if (result.rows.length === 0) {
+      return res.status(500).send('No data found');
     }
-  });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Latest data error:', err.message);
+    res.status(500).send('Error fetching data');
+  }
 });
 
-app.get('/all-records', (req, res) => {
-  db.all(`SELECT * FROM sensor_data`, (err, rows) => {
-    if (err) {
-      res.status(500).send('Error fetching records');
-    } else {
-      res.json(rows);
-    }
-  });
+app.get('/all-records', async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT * FROM sensor_data ORDER BY id ASC`);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('All records error:', err.message);
+    res.status(500).send('Error fetching records');
+  }
 });
 
-app.delete('/delete-record/:id', (req, res) => {
+app.delete('/delete-record/:id', async (req, res) => {
   const { id } = req.params;
-  db.run(`DELETE FROM sensor_data WHERE id = ?`, [id], (err) => {
-    if (err) {
-      res.status(500).send('Error deleting record');
-    } else {
-      res.send('Record deleted successfully');
-    }
-  });
+  try {
+    await pool.query(`DELETE FROM sensor_data WHERE id = $1`, [id]);
+    res.send('Record deleted successfully');
+  } catch (err) {
+    console.error('Delete error:', err.message);
+    res.status(500).send('Error deleting record');
+  }
 });
+
+// LCD text stored in memory (file system not persistent on Render)
+let lcdTextStore = '';
 
 app.post('/save-lcd', (req, res) => {
   const { text } = req.body;
-  fs.writeFile('./lcd.txt', text, (err) => {
-    if (err) {
-      res.status(500).send('Error saving text');
-    } else {
-      res.send('Text saved successfully');
-    }
-  });
+  lcdTextStore = text;
+  res.send('Text saved successfully');
 });
 
 app.get('/api/get-lcd', (req, res) => {
-  fs.readFile('./lcd.txt', 'utf8', (err, data) => {
-    if (err) {
-      res.status(500).send('Error reading text');
-    } else {
-      res.send(data);
-    }
-  });
+  res.send(lcdTextStore);
 });
 
 // Start server
